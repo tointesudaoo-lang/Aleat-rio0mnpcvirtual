@@ -1,0 +1,358 @@
+name: FELIPE CLOUD
+
+on:
+  workflow_dispatch:
+
+jobs:
+  felipe-cloud:
+    name: FELIPE CLOUD - Gaming
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+
+      # =========================================================
+      # 1 - INFORMAÇÕES DO SISTEMA
+      # =========================================================
+
+      - name: "01 - Detectar CPU"
+        shell: powershell
+        run: |
+          $cpu = Get-CimInstance Win32_Processor
+          Write-Host "CPU: $($cpu.Name)"
+          Write-Host "Núcleos: $($cpu.NumberOfCores)"
+          Write-Host "Threads: $($cpu.NumberOfLogicalProcessors)"
+
+      - name: "02 - Detectar RAM"
+        shell: powershell
+        run: |
+          $pc = Get-CimInstance Win32_ComputerSystem
+          $ram = [math]::Round($pc.TotalPhysicalMemory / 1GB, 2)
+
+          Write-Host "RAM disponível: $ram GB"
+
+          if ($ram -ge 24) {
+            Write-Host "OK: runner possui pelo menos 24 GB de RAM."
+          }
+          else {
+            Write-Host "AVISO: runner possui menos de 24 GB."
+          }
+
+      - name: "03 - Detectar GPU"
+        shell: powershell
+        run: |
+          Get-CimInstance Win32_VideoController |
+            Select-Object Name, DriverVersion, VideoModeDescription |
+            Format-List
+
+      - name: "04 - Detectar armazenamento"
+        shell: powershell
+        run: |
+          Get-CimInstance Win32_LogicalDisk |
+            Where-Object {$_.DriveType -eq 3} |
+            Select-Object DeviceID,
+              @{N="TotalGB";E={[math]::Round($_.Size/1GB,2)}},
+              @{N="LivreGB";E={[math]::Round($_.FreeSpace/1GB,2)}} |
+            Format-Table
+
+      - name: "05 - Detectar placa-mãe"
+        shell: powershell
+        run: |
+          Get-CimInstance Win32_BaseBoard |
+            Select-Object Manufacturer, Product, Version |
+            Format-List
+
+      # =========================================================
+      # 2 - RDP
+      # =========================================================
+
+      - name: "06 - Ativar RDP"
+        shell: powershell
+        run: |
+          Set-ItemProperty `
+            -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" `
+            -Name "fDenyTSConnections" `
+            -Value 0
+
+      - name: "07 - Configurar firewall RDP"
+        shell: powershell
+        run: |
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+      - name: "08 - Garantir serviço RDP"
+        shell: powershell
+        run: |
+          Set-Service -Name TermService -StartupType Automatic
+          Start-Service -Name TermService
+
+      - name: "09 - Testar porta RDP"
+        shell: powershell
+        run: |
+          $result = Test-NetConnection 127.0.0.1 -Port 3389
+
+          if ($result.TcpTestSucceeded) {
+            Write-Host "RDP funcionando."
+          }
+          else {
+            Write-Host "RDP não respondeu."
+          }
+
+      # =========================================================
+      # 3 - USUÁRIO
+      # =========================================================
+
+      - name: "10 - Criar usuário FELIPE CLOUD"
+        shell: powershell
+        run: |
+          $User = "FelipeCloud"
+
+          $Password = -join (
+            ((48..57) + (65..90) + (97..122) |
+            Get-Random -Count 20 |
+            ForEach-Object {[char]$_})
+          )
+
+          $Secure = ConvertTo-SecureString `
+            $Password `
+            -AsPlainText `
+            -Force
+
+          if (-not (Get-LocalUser -Name $User -ErrorAction SilentlyContinue)) {
+
+            New-LocalUser `
+              -Name $User `
+              -Password $Secure `
+              -AccountNeverExpires `
+              -PasswordNeverExpires
+
+          }
+
+          Add-LocalGroupMember `
+            -Group "Administrators" `
+            -Member $User `
+            -ErrorAction SilentlyContinue
+
+          Add-LocalGroupMember `
+            -Group "Remote Desktop Users" `
+            -Member $User `
+            -ErrorAction SilentlyContinue
+
+          "FELIPE CLOUD"
+          "Usuário: $User"
+          "Senha: $Password"
+
+      # =========================================================
+      # 4 - DESEMPENHO
+      # =========================================================
+
+      - name: "11 - Alto desempenho"
+        shell: powershell
+        run: |
+          powercfg /setactive SCHEME_MIN
+
+      - name: "12 - Desativar suspensão"
+        shell: powershell
+        run: |
+          powercfg /change monitor-timeout-ac 0
+          powercfg /change standby-timeout-ac 0
+          powercfg /change disk-timeout-ac 0
+
+      - name: "13 - Desativar hibernação"
+        shell: powershell
+        run: |
+          powercfg /hibernate off
+
+      - name: "14 - Otimizar CPU"
+        shell: powershell
+        run: |
+          powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMIN 5
+          powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMAX 100
+          powercfg /setactive SCHEME_CURRENT
+
+      - name: "15 - Otimizar rede TCP"
+        shell: powershell
+        run: |
+          netsh interface tcp set global autotuninglevel=normal
+          netsh interface tcp set global rss=enabled
+
+      - name: "16 - Limpar DNS"
+        shell: powershell
+        run: |
+          ipconfig /flushdns
+
+      # =========================================================
+      # 5 - LIMPEZA
+      # =========================================================
+
+      - name: "17 - Limpar temporários"
+        shell: powershell
+        run: |
+          Remove-Item "$env:TEMP\*" `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+      - name: "18 - Limpar Windows Temp"
+        shell: powershell
+        run: |
+          Remove-Item "C:\Windows\Temp\*" `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+      # =========================================================
+      # 6 - WINDOWS
+      # =========================================================
+
+      - name: "19 - Verificar Windows"
+        shell: powershell
+        run: |
+          DISM /Online /Cleanup-Image /CheckHealth
+
+      - name: "20 - Verificar arquivos"
+        shell: powershell
+        run: |
+          sfc /verifyonly
+
+      # =========================================================
+      # 7 - ROBLOX
+      # =========================================================
+
+      - name: "21 - Verificar Winget"
+        shell: powershell
+        run: |
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Write-Host "Winget encontrado."
+          }
+          else {
+            Write-Host "Winget não encontrado."
+          }
+
+      - name: "22 - Instalar Roblox"
+        shell: powershell
+        continue-on-error: true
+        run: |
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+
+            winget install `
+              --id Roblox.Roblox `
+              --source msstore `
+              --accept-source-agreements `
+              --accept-package-agreements `
+              --silent
+
+          }
+
+      # =========================================================
+      # 8 - TAILSCALE
+      # =========================================================
+
+      - name: "23 - Baixar Tailscale"
+        shell: powershell
+        run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $file = "$env:TEMP\tailscale.msi"
+
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile $file
+
+      - name: "24 - Instalar Tailscale"
+        shell: powershell
+        run: |
+          $file = "$env:TEMP\tailscale.msi"
+
+          Start-Process `
+            msiexec.exe `
+            -ArgumentList "/i `"$file`" /qn /norestart" `
+            -Wait
+
+      - name: "25 - Conectar Tailscale"
+        shell: powershell
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          $ts = "C:\Program Files\Tailscale\tailscale.exe"
+
+          if (-not (Test-Path $ts)) {
+            Write-Host "Tailscale não instalado."
+            exit 0
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:TS_AUTHKEY)) {
+            Write-Host "TS_AUTHKEY não configurado."
+            exit 0
+          }
+
+          & $ts up `
+            --authkey="$env:TS_AUTHKEY" `
+            --hostname="felipe-cloud"
+
+      - name: "26 - Mostrar IP Tailscale"
+        shell: powershell
+        run: |
+          $ts = "C:\Program Files\Tailscale\tailscale.exe"
+
+          if (Test-Path $ts) {
+            & $ts ip -4
+          }
+
+      # =========================================================
+      # 9 - DIAGNÓSTICO FINAL
+      # =========================================================
+
+      - name: "27 - Status final"
+        shell: powershell
+        run: |
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "        FELIPE CLOUD ONLINE"
+          Write-Host "======================================"
+
+          $pc = Get-CimInstance Win32_ComputerSystem
+          $cpu = Get-CimInstance Win32_Processor
+
+          Write-Host "CPU: $($cpu.Name)"
+          Write-Host "RAM: $([math]::Round($pc.TotalPhysicalMemory/1GB,2)) GB"
+
+          Write-Host ""
+          Write-Host "RDP: ATIVADO"
+          Write-Host "Tailscale: CONFIGURADO"
+          Write-Host "Roblox: TENTADO"
+          Write-Host "======================================"
+
+      # =========================================================
+      # 10 - MANTER ONLINE
+      # =========================================================
+
+      - name: "28 - Manter FELIPE CLOUD ativo"
+        shell: powershell
+        run: |
+          while ($true) {
+
+            Write-Host ""
+            Write-Host "FELIPE CLOUD ativo: $(Get-Date)"
+
+            $ram = Get-CimInstance Win32_OperatingSystem
+
+            $free = [math]::Round(
+              $ram.FreePhysicalMemory / 1MB,
+              2
+            )
+
+            Write-Host "RAM livre: $free GB"
+
+            $rdp = Test-NetConnection `
+              127.0.0.1 `
+              -Port 3389 `
+              -WarningAction SilentlyContinue
+
+            if ($rdp.TcpTestSucceeded) {
+              Write-Host "RDP: OK"
+            }
+            else {
+              Write-Host "RDP: OFF"
+            }
+
+            Start-Sleep -Seconds 60
+          }
